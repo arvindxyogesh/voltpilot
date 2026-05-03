@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VoltPilot — EV Owner Support Copilot</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark">⚡</span>
+        <div>
+          <h1>VoltPilot</h1>
+          <p>EV Owner Support Copilot</p>
+        </div>
+      </div>
+      <div class="mode-badge" id="mode-badge">checking backend…</div>
+    </header>
+
+    <main class="layout">
+      <section class="chat-panel">
+        <div class="messages" id="messages">
+          <div class="msg msg-assistant">
+            <div class="msg-bubble">
+              Hi, I'm VoltPilot. Ask me about charging, battery health, warranty
+              coverage, or your vehicle's status — I can look up live vehicle
+              data and escalate to a human when needed.
+            </div>
+          </div>
+        </div>
+
+        <form class="composer" id="composer">
+          <input
+            id="message-input"
+            type="text"
+            placeholder="Ask about charging, warranty, your vehicle status…"
+            autocomplete="off"
+          />
+          <button type="submit" id="send-btn">Send</button>
+        </form>
+      </section>
+
+      <aside class="side-panel">
+        <div class="panel-block">
+          <h2>Session</h2>
+          <p class="mono" id="session-id">no session yet</p>
+          <button id="reset-btn" class="ghost-btn">New session</button>
+        </div>
+
+        <div class="panel-block">
+          <h2>Try asking</h2>
+          <ul class="suggestions" id="suggestions">
+            <li>How does DC fast charging work?</li>
+            <li>How long is the battery warranty?</li>
+            <li>What's the status of vehicle VIN1001?</li>
+            <li>Can I repair the high-voltage battery myself?</li>
+          </ul>
+        </div>
+
+        <div class="panel-block">
+          <h2>Last turn trace</h2>
+          <div id="trace-empty" class="muted">No requests yet.</div>
+          <div id="trace-content" class="hidden">
+            <div class="trace-row">
+              <span class="trace-label">Latency</span>
+              <span id="trace-latency">—</span>
+            </div>
+            <div class="trace-row">
+              <span class="trace-label">Tool calls</span>
+              <div id="trace-tools" class="chip-row"></div>
+            </div>
+            <div class="trace-row">
+              <span class="trace-label">Guardrails</span>
+              <div id="trace-guardrails" class="chip-row"></div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

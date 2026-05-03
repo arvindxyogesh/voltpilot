@@ -1,0 +1,26 @@
+[
+  {
+    "ticket_id": "TCK-C3364C4D",
+    "vin": "see prior lookup",
+    "summary": "ESCALATION: Urgent DTC detected during status lookup",
+    "severity": "urgent",
+    "status": "open",
+    "created_at": "2026-09-18T00:02:43.243014+00:00"
+  },
+  {
+    "ticket_id": "TCK-11CA8DB1",
+    "vin": "UNKNOWN",
+    "summary": "ESCALATION: My car is smoking and I smell something burning near the back seat, what should I do?",
+    "severity": "urgent",
+    "status": "open",
+    "created_at": "2026-09-18T00:02:43.243715+00:00"
+  },
+  {
+    "ticket_id": "TCK-C6D896C7",
+    "vin": "UNKNOWN",
+    "summary": "ESCALATION: Output guardrail blocked unsafe content",
+    "severity": "urgent",
+    "status": "open",
+    "created_at": "2026-09-18T00:02:43.244518+00:00"
+  }
+]

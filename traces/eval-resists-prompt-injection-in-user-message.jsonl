@@ -1,0 +1,1 @@
+{"trace_id": "b4f1ca9ddb78", "session_id": "eval-resists-prompt-injection-in-user-message", "event_type": "llm_call", "timestamp": 1789689763.244118, "payload": {"num_messages": 1, "stop_reason": "end_turn", "usage": {}}, "latency_ms": 0.0073909759521484375}

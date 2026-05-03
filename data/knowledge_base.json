@@ -1,0 +1,92 @@
+[
+  {
+    "doc_id": "KB-001",
+    "title": "Owner's Manual",
+    "section": "Charging — Level 1 and Level 2",
+    "text": "Level 1 charging uses a standard 120V household outlet and adds approximately 3-5 miles of range per hour. Level 2 charging requires a 240V circuit (typically installed by an electrician) and adds approximately 20-30 miles of range per hour depending on onboard charger capacity. For daily commuting, Level 2 home charging overnight is sufficient for most driving patterns."
+  },
+  {
+    "doc_id": "KB-002",
+    "title": "Owner's Manual",
+    "section": "Charging — DC Fast Charging",
+    "text": "DC fast charging can restore 10%-80% state of charge in approximately 30-40 minutes under optimal conditions. Charging speed slows significantly above 80% to protect battery longevity, so fast charging is most time-efficient when used for the 10%-80% range rather than charging to 100%. Battery preconditioning (automatically triggered when a fast charger is set as the navigation destination) improves charging speed in cold weather."
+  },
+  {
+    "doc_id": "KB-003",
+    "title": "Owner's Manual",
+    "section": "Battery Health and Longevity",
+    "text": "For daily use, keeping the battery between 20% and 80% state of charge maximizes long-term battery health. Charging to 100% is recommended only before long trips. Battery degradation of 5-10% over 8 years or 100,000 miles is typical and covered under the battery warranty if it falls outside expected ranges."
+  },
+  {
+    "doc_id": "KB-004",
+    "title": "Warranty Guide",
+    "section": "Battery and Drive Unit Warranty",
+    "text": "The high-voltage battery and drive unit are covered for 8 years or 120,000 miles, whichever comes first, against defects and against capacity falling below 70% of original rated capacity. The comprehensive vehicle warranty covers 4 years or 50,000 miles. Wear items (tires, wiper blades, brake pads) are not covered under warranty."
+  },
+  {
+    "doc_id": "KB-005",
+    "title": "Warranty Guide",
+    "section": "Filing a Warranty Claim",
+    "text": "Warranty claims should be filed through an authorized service center. Customers should not attempt to open, modify, or repair the high-voltage battery pack or drive unit themselves under any circumstances — doing so voids the warranty and creates a serious electrical shock and fire risk. All high-voltage system work must be performed by certified technicians with proper personal protective equipment and lockout/tagout procedures."
+  },
+  {
+    "doc_id": "KB-006",
+    "title": "Owner's Manual",
+    "section": "Safety — High Voltage System",
+    "text": "The vehicle's high-voltage system operates at up to 400V. Warning labels on the battery pack and orange high-voltage cabling indicate components that must never be touched, cut, or accessed by anyone other than a certified high-voltage technician. If the vehicle has been in a collision, is smoking, or shows signs of battery swelling or unusual odor, move a safe distance away, do not attempt to charge or drive it, and contact roadside assistance or emergency services immediately."
+  },
+  {
+    "doc_id": "KB-007",
+    "title": "Service Guide",
+    "section": "Scheduled Maintenance",
+    "text": "Recommended scheduled maintenance includes annual cabin air filter replacement, tire rotation every 7,500-10,000 miles, and brake fluid inspection every 2 years. Unlike combustion vehicles, there is no engine oil to change. Service appointments can be booked through the mobile app or by contacting a service center directly."
+  },
+  {
+    "doc_id": "KB-008",
+    "title": "Service Guide",
+    "section": "Diagnostic Trouble Codes (DTCs)",
+    "text": "When the vehicle detects a fault, it logs a Diagnostic Trouble Code (DTC) and may display a dashboard warning light. Common non-urgent codes relate to sensor calibration and typically resolve after a software update or a brief service visit. Codes related to the high-voltage battery, drive unit, or braking system are considered urgent and the vehicle should be serviced promptly; continuing to drive is not recommended if an urgent code is accompanied by a loss of power or braking warning."
+  },
+  {
+    "doc_id": "KB-009",
+    "title": "Software Guide",
+    "section": "Over-the-Air (OTA) Updates",
+    "text": "Software updates are delivered over-the-air and typically install overnight while the vehicle is parked and connected to Wi-Fi. Updates may add features, improve range estimation accuracy, or address recall items. The vehicle should not be driven during an active update installation, which can take 30-60 minutes."
+  },
+  {
+    "doc_id": "KB-010",
+    "title": "Roadside Assistance Guide",
+    "section": "Coverage and How to Request Help",
+    "text": "24/7 roadside assistance is included for the duration of the vehicle warranty and covers towing to the nearest service center, flat tire changes, and lockout assistance. Roadside assistance can be requested through the mobile app's emergency button, which shares the vehicle's live GPS location automatically, or by phone."
+  },
+  {
+    "doc_id": "KB-011",
+    "title": "Owner's Manual",
+    "section": "Cold Weather Range Impact",
+    "text": "Cold ambient temperatures reduce usable range by approximately 20-30% due to battery chemistry and cabin heating demand. Preconditioning the cabin and battery while still plugged in (rather than after unplugging) uses grid power instead of battery power and preserves more usable range for the trip."
+  },
+  {
+    "doc_id": "KB-012",
+    "title": "Owner's Manual",
+    "section": "Towing and Transport",
+    "text": "The vehicle should only be towed on a flatbed. Towing with the wheels on the ground (dolly towing) can damage the drive unit because the electric motors act as generators when the wheels turn, even when the vehicle is off. If flatbed towing is not available, contact roadside assistance for guidance."
+  },
+  {
+    "doc_id": "KB-013",
+    "title": "Service Guide",
+    "section": "Tire Care",
+    "text": "EVs place higher torque and weight loads on tires than comparable combustion vehicles, which can accelerate wear. Tire pressure should be checked monthly, since incorrect pressure both accelerates wear and measurably reduces range. Use of tires not rated for the vehicle's weight can void the tire portion of the warranty."
+  },
+  {
+    "doc_id": "KB-014",
+    "title": "FAQ",
+    "section": "Trip Planning",
+    "text": "The in-vehicle navigation system automatically routes through DC fast chargers when a destination exceeds current range and factors in elevation, weather, and cabin climate settings. Trip range estimates assume moderate driving speeds; sustained highway speeds above 70 mph reduce range compared to the displayed estimate."
+  },
+  {
+    "doc_id": "KB-015",
+    "title": "FAQ",
+    "section": "Home Charger Installation",
+    "text": "Home Level 2 charger installation typically requires a licensed electrician to install a dedicated 240V circuit. Customers can request a referral to a certified installation partner through the mobile app. Installation cost varies based on electrical panel capacity and distance from the panel to the parking location."
+  }
+]

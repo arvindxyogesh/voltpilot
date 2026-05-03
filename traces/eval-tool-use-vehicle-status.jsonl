@@ -1,0 +1,3 @@
+{"trace_id": "fca961a5cc6d", "session_id": "eval-tool-use-vehicle-status", "event_type": "llm_call", "timestamp": 1789689763.2423983, "payload": {"num_messages": 1, "stop_reason": "tool_use", "usage": {}}, "latency_ms": 0.011444091796875}
+{"trace_id": "009797116352", "session_id": "eval-tool-use-vehicle-status", "event_type": "tool_call", "timestamp": 1789689763.2425442, "payload": {"name": "get_vehicle_status", "input": {"vin": "RJ1A2B3C4D5E6F7G8"}, "ok": true}, "latency_ms": 0.041961669921875}
+{"trace_id": "6c32c8f82182", "session_id": "eval-tool-use-vehicle-status", "event_type": "llm_call", "timestamp": 1789689763.242642, "payload": {"num_messages": 3, "stop_reason": "end_turn", "usage": {}}, "latency_ms": 0.010728836059570312}

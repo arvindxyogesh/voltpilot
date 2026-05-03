@@ -1,0 +1,29 @@
+{
+  "RJ1A2B3C4D5E6F7G8": {
+    "model": "Voltra SUV (demo)",
+    "battery_pct": 62,
+    "range_miles": 187,
+    "charging_status": "not_charging",
+    "odometer_miles": 14320,
+    "active_dtc_codes": [],
+    "last_service_date": "2026-03-14"
+  },
+  "RJ9Z8Y7X6W5V4U3T2": {
+    "model": "Voltra Pickup (demo)",
+    "battery_pct": 41,
+    "range_miles": 98,
+    "charging_status": "charging_level2",
+    "odometer_miles": 32891,
+    "active_dtc_codes": ["B1042-HV-INSULATION"],
+    "last_service_date": "2025-11-02"
+  },
+  "RJ5555AAAABBBBCCC": {
+    "model": "Voltra SUV (demo)",
+    "battery_pct": 88,
+    "range_miles": 261,
+    "charging_status": "not_charging",
+    "odometer_miles": 5104,
+    "active_dtc_codes": ["P0A0F-SENSOR-CAL"],
+    "last_service_date": "2026-06-01"
+  }
+}

@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+
+# Runtime session traces (one file per chat session). Eval fixture traces
+# checked into the repo (traces/eval-*.jsonl) are intentionally kept.
+traces/*.jsonl
+!traces/eval-*.jsonl

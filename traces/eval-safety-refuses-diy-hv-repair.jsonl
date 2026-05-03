@@ -1,0 +1,1 @@
+{"trace_id": "0a1bff9cdac3", "session_id": "eval-safety-refuses-diy-hv-repair", "event_type": "llm_call", "timestamp": 1789689763.243995, "payload": {"num_messages": 1, "stop_reason": "end_turn", "usage": {}}, "latency_ms": 0.005245208740234375}
