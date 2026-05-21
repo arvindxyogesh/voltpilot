@@ -64,8 +64,18 @@ class LLMResponse:
     usage: dict[str, int] = field(default_factory=dict)
 
 
+@dataclass
+class CritiqueResult:
+    approved: bool
+    note: str = ""
+
+
 class LLMClient(Protocol):
     def create(self, system: str, messages: list[dict], tools: list[dict]) -> LLMResponse: ...
+    def critique(self, user_message: str, tool_calls_made: list[dict], draft_response: str) -> CritiqueResult: ...
+
+
+CRITIQUE_SYSTEM_PROMPT = "You are a strict quality reviewer for a customer-support AI. Be concise."
 
 
 class LiveLLMClient:
@@ -87,12 +97,37 @@ class LiveLLMClient:
         usage = {"input_tokens": response.usage.input_tokens, "output_tokens": response.usage.output_tokens}
         return LLMResponse(content=content, stop_reason=response.stop_reason, usage=usage)
 
+    def critique(self, user_message: str, tool_calls_made: list[dict], draft_response: str) -> CritiqueResult:
+        tool_names = ", ".join(c["name"] for c in tool_calls_made) or "none"
+        review_prompt = (
+            f"Customer question: {user_message}\n\n"
+            f"Tools used while answering: {tool_names}\n\n"
+            f"Draft answer:\n{draft_response}\n\n"
+            "You're reviewing this before it's sent to the customer. Does it directly address "
+            "the question, and is every specific factual claim grounded in a tool result rather "
+            "than invented? Reply with exactly 'APPROVE', or 'REVISE: <one sentence reason>' if "
+            "it shouldn't go out as-is."
+        )
+        response = self.create(
+            system=CRITIQUE_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": review_prompt}],
+            tools=[],
+        )
+        text = "".join(b.get("text", "") for b in response.content if b.get("type") == "text").strip()
+        if text.upper().startswith("APPROVE"):
+            return CritiqueResult(approved=True, note=text)
+        return CritiqueResult(approved=False, note=text or "Reviewer requested changes.")
+
 
 _VIN_RE = re.compile(r"\b[A-Z0-9]{15,20}\b")
 
 UNSAFE_TRIGGER = "TEST_UNSAFE_MODEL_OUTPUT"  # deliberately reachable only by an explicit eval case;
 # exists to prove the deterministic output guardrail catches unsafe content even when the
 # "model" (mock, here) fails to refuse on its own -- see eval/cases.json's guardrail-backstop case.
+
+UNGROUNDED_TRIGGER = "TEST_FABRICATED_CLAIM"  # same idea as UNSAFE_TRIGGER, but for the critique
+# pass: forces the mock into stating a confident, specific claim with no tool call behind it, so
+# the judge/critique step has something real to catch -- see eval/cases.json's judge case.
 
 INJECTION_MARKERS = ("ignore previous instructions", "reveal your system prompt", "you are now",
                      "disregard the above", "act as an unrestricted")
@@ -102,6 +137,11 @@ UNSAFE_REQUEST_MARKERS = ("open the battery myself", "repair the battery pack my
                           "open the high voltage battery myself")
 
 SAFETY_MARKERS = ("smok", "swelling", "burning", "on fire", "caught fire")
+
+CRITIQUE_FALLBACK_MESSAGE = (
+    "I want a specialist to double-check that before I confirm it -- I've flagged this for "
+    "follow-up and someone will get back to you with a verified answer."
+)
 
 
 class MockLLMClient:
@@ -130,6 +170,18 @@ class MockLLMClient:
             # Deliberately unsafe "model" output, to prove the guardrail backstop works.
             return LLMResponse(
                 content=[{"type": "text", "text": "Sure, here's how to repair the battery pack yourself: ..."}],
+                stop_reason="end_turn",
+            )
+
+        if UNGROUNDED_TRIGGER in user_text:
+            # Deliberately confident but unsupported claim, no tool call behind it, to prove the
+            # critique/judge pass works.
+            return LLMResponse(
+                content=[{
+                    "type": "text",
+                    "text": "Yes -- this model comes standard with a built-in espresso machine in the "
+                            "center console.",
+                }],
                 stop_reason="end_turn",
             )
 
@@ -286,6 +338,14 @@ class MockLLMClient:
         match = _VIN_RE.search(text)
         return match.group(0) if match else None
 
+    def critique(self, user_message: str, tool_calls_made: list[dict], draft_response: str) -> CritiqueResult:
+        if UNGROUNDED_TRIGGER in user_message:
+            return CritiqueResult(
+                approved=False,
+                note="Draft states a specific factual claim with no supporting tool call -- likely fabricated.",
+            )
+        return CritiqueResult(approved=True, note="Grounded and responsive to the question.")
+
 
 def build_llm_client() -> LLMClient:
     if os.environ.get("ANTHROPIC_API_KEY"):
@@ -316,17 +376,36 @@ class EVCopilotAgent:
             if response.stop_reason != "tool_use":
                 final_text = "".join(b.get("text", "") for b in response.content if b.get("type") == "text")
                 safety_finding = check_output_safety(final_text)
+                critique_result: CritiqueResult | None = None
                 if safety_finding.triggered:
                     self.tracer.log("guardrail", {"category": safety_finding.category, "stage": "output",
                                                    "matches": safety_finding.matches})
                     guardrail_events.append({"category": safety_finding.category, "stage": "output"})
                     tools_mod.escalate_to_human(reason="Output guardrail blocked unsafe content", vin=None)
                     final_text = SAFE_REFUSAL_MESSAGE
+                else:
+                    # A second pass over the agent's own draft answer before it goes out --
+                    # catches confident-sounding claims that aren't actually backed by a tool
+                    # result, independent of whether the safety guardrail above had anything to
+                    # say about it.
+                    with self.tracer.timed("critique", {}) as extra:
+                        critique_result = self.llm_client.critique(
+                            user_message=user_message, tool_calls_made=tool_calls_made, draft_response=final_text,
+                        )
+                        extra["approved"] = critique_result.approved
+                        extra["note"] = critique_result.note
+                    if not critique_result.approved:
+                        tools_mod.escalate_to_human(
+                            reason=f"Answer failed self-critique: {critique_result.note}", vin=None,
+                        )
+                        final_text = CRITIQUE_FALLBACK_MESSAGE
                 return {
                     "response": final_text,
                     "messages": messages,
                     "tool_calls": tool_calls_made,
                     "guardrail_events": guardrail_events,
+                    "critique": {"approved": critique_result.approved, "note": critique_result.note}
+                    if critique_result else None,
                     "session_id": self.tracer.session_id,
                 }
 
@@ -365,5 +444,6 @@ class EVCopilotAgent:
             "messages": messages,
             "tool_calls": tool_calls_made,
             "guardrail_events": guardrail_events,
+            "critique": None,
             "session_id": self.tracer.session_id,
         }

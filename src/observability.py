@@ -6,12 +6,20 @@ JSONL file, because the eval harness and any future dashboard need to reason
 about individual steps (which tool was called, how long the LLM call took,
 whether a guardrail fired) rather than parsing a blob of chat transcript.
 JSONL also means a trace file is streaming-appendable and grep-able without
-loading the whole run into memory -- the same reason production tracing
-systems (OpenTelemetry spans, LangSmith runs) use one-record-per-event.
+loading the whole run into memory.
+
+Every event is also emitted as an OpenTelemetry span, so this can plug into
+a real tracing backend without touching the agent code. By default no
+exporter is attached (spans are created but go nowhere -- near-zero
+overhead), which keeps eval runs and local testing quiet. Set
+OTEL_CONSOLE_EXPORT=1 to print spans to stdout, or OTEL_EXPORTER_OTLP_ENDPOINT
+to ship them to a real OTLP collector (Jaeger, Honeycomb, etc.) via the
+standard OpenTelemetry env var.
 """
 from __future__ import annotations
 
 import json
+import os
 import time
 import uuid
 from contextlib import contextmanager
@@ -19,10 +27,39 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from opentelemetry import trace as otel_trace
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+
 from src.guardrails import redact_pii
 
 TRACES_DIR = Path(__file__).resolve().parent.parent / "traces"
 TRACES_DIR.mkdir(exist_ok=True)
+
+_otel_provider = TracerProvider(resource=Resource.create({"service.name": "voltpilot"}))
+if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
+    _otel_provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+elif os.environ.get("OTEL_CONSOLE_EXPORT"):
+    _otel_provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
+otel_trace.set_tracer_provider(_otel_provider)
+_otel_tracer = otel_trace.get_tracer("voltpilot")
+
+
+def _span_attrs(payload: dict[str, Any]) -> dict[str, Any]:
+    """Span attributes must be primitives or arrays of primitives -- anything
+    else (a nested dict, a mixed list) gets flattened to a JSON string."""
+    attrs: dict[str, Any] = {}
+    for key, value in payload.items():
+        if isinstance(value, (str, bool, int, float)):
+            attrs[key] = value
+        elif isinstance(value, list) and all(isinstance(item, (str, bool, int, float)) for item in value):
+            attrs[key] = value
+        else:
+            attrs[key] = json.dumps(value, default=str)
+    return attrs
 
 
 @dataclass
@@ -48,27 +85,50 @@ class Tracer:
             f.write(json.dumps(record) + "\n")
 
     def log(self, event_type: str, payload: dict[str, Any], latency_ms: float | None = None) -> None:
-        self._write(
-            TraceEvent(
-                trace_id=uuid.uuid4().hex[:12],
-                session_id=self.session_id,
-                event_type=event_type,
-                timestamp=time.time(),
-                payload=payload,
-                latency_ms=latency_ms,
+        with _otel_tracer.start_as_current_span(event_type) as span:
+            span.set_attributes(_span_attrs(payload))
+            span.set_attribute("session_id", self.session_id)
+            if latency_ms is not None:
+                span.set_attribute("latency_ms", latency_ms)
+            self._write(
+                TraceEvent(
+                    trace_id=uuid.uuid4().hex[:12],
+                    session_id=self.session_id,
+                    event_type=event_type,
+                    timestamp=time.time(),
+                    payload=payload,
+                    latency_ms=latency_ms,
+                )
             )
-        )
 
     @contextmanager
     def timed(self, event_type: str, payload: dict[str, Any]):
-        """Usage: with tracer.timed('tool_call', {'name': ...}) as extra: extra['result'] = ..."""
+        """Usage: with tracer.timed('tool_call', {'name': ...}) as extra: extra['result'] = ...
+
+        Wraps the whole timed block in a real OTel span (so span duration
+        reflects actual work, not just the JSONL write) and still logs the
+        same JSONL event as before."""
         start = time.time()
         extra: dict[str, Any] = {}
-        try:
-            yield extra
-        finally:
-            latency_ms = (time.time() - start) * 1000
-            self.log(event_type, {**payload, **extra}, latency_ms=latency_ms)
+        with _otel_tracer.start_as_current_span(event_type) as span:
+            try:
+                yield extra
+            finally:
+                latency_ms = (time.time() - start) * 1000
+                merged = {**payload, **extra}
+                span.set_attributes(_span_attrs(merged))
+                span.set_attribute("session_id", self.session_id)
+                span.set_attribute("latency_ms", latency_ms)
+                self._write(
+                    TraceEvent(
+                        trace_id=uuid.uuid4().hex[:12],
+                        session_id=self.session_id,
+                        event_type=event_type,
+                        timestamp=time.time(),
+                        payload=merged,
+                        latency_ms=latency_ms,
+                    )
+                )
 
     def read_events(self) -> list[dict]:
         if not self.path.exists():

@@ -41,6 +41,7 @@ class ChatResponse(BaseModel):
     session_id: str
     tool_calls: list[dict]
     guardrail_events: list[dict]
+    critique: Optional[dict] = None
     latency_ms: float
 
 
@@ -77,6 +78,7 @@ def chat(req: ChatRequest) -> ChatResponse:
         session_id=session_id,
         tool_calls=result["tool_calls"],
         guardrail_events=result["guardrail_events"],
+        critique=result.get("critique"),
         latency_ms=round(latency_ms, 1),
     )
 

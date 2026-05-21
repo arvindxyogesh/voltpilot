@@ -68,6 +68,7 @@ def run_agent_case(case: dict) -> dict:
         "response": result["response"],
         "tool_sequence": tool_sequence,
         "guardrail_events": result["guardrail_events"],
+        "critique": result.get("critique"),
     }
 
 

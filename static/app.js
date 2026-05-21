@@ -12,6 +12,7 @@ const traceContent = document.getElementById("trace-content");
 const traceLatency = document.getElementById("trace-latency");
 const traceTools = document.getElementById("trace-tools");
 const traceGuardrails = document.getElementById("trace-guardrails");
+const traceCritique = document.getElementById("trace-critique");
 
 let sessionId = null;
 
@@ -54,6 +55,21 @@ function renderTrace(result) {
       chip.textContent = event.type || JSON.stringify(event);
       traceGuardrails.appendChild(chip);
     }
+  }
+
+  traceCritique.innerHTML = "";
+  if (!result.critique) {
+    traceCritique.innerHTML = '<span class="muted">not run</span>';
+  } else {
+    const chip = document.createElement("span");
+    chip.className = `chip ${result.critique.approved ? "tool" : "guardrail"}`;
+    chip.textContent = result.critique.approved ? "approved" : "revised";
+    traceCritique.appendChild(chip);
+    const note = document.createElement("div");
+    note.className = "muted";
+    note.style.marginTop = "4px";
+    note.textContent = result.critique.note;
+    traceCritique.appendChild(note);
   }
 }
 

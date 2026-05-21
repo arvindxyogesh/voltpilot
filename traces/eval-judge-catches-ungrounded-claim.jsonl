@@ -1,0 +1,2 @@
+{"trace_id": "f39819f2fa1e", "session_id": "eval-judge-catches-ungrounded-claim", "event_type": "llm_call", "timestamp": 1789694513.7055473, "payload": {"num_messages": 1, "stop_reason": "end_turn", "usage": {}}, "latency_ms": 0.02384185791015625}
+{"trace_id": "dcbf8724535b", "session_id": "eval-judge-catches-ungrounded-claim", "event_type": "critique", "timestamp": 1789694513.7056594, "payload": {"approved": false, "note": "Draft states a specific factual claim with no supporting tool call -- likely fabricated."}, "latency_ms": 0.0171661376953125}

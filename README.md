@@ -38,12 +38,19 @@ enough to hold in your head, but every piece is real and testable.
 `static/` is a plain HTML/CSS/JS chat UI, no build step. FastAPI mounts it directly
 (`src/serve.py`), so `uvicorn src.serve:app` serves both the UI and the API from one process.
 You get the conversation, the session id, and a trace panel showing latency/tool
-calls/guardrail hits for each turn.
+calls/guardrail hits/critique verdict for each turn.
 
 The agent loop itself (`EVCopilotAgent.handle_message`) is hand-rolled against the Anthropic
 Messages API instead of LangGraph/AutoGen/CrewAI. Writing it by hand means the actual failure
 modes — a tool that doesn't get called, a tool result you need to treat as untrusted, deciding
 when to stop looping — are visible in the code instead of buried inside a framework.
+
+Before a draft answer goes out, a second pass (`LLMClient.critique`) reviews it against the
+question and whatever tool results backed it up, and can veto it if it's making a claim that
+isn't actually grounded in anything. It's a minimal judge/critique pattern, not a full
+multi-agent debate — one extra review call, logged and shown in the trace panel like everything
+else. In live mode that's a second Claude call per turn (added cost); in mock mode it's a
+deterministic check.
 
 ## Where things live
 
@@ -53,9 +60,10 @@ when to stop looping — are visible in the code instead of buried inside a fram
 | Retrieval | `src/retrieval.py` — pluggable `Embedder` interface (TF-IDF by default) over `data/knowledge_base.json` |
 | Tools / data | `src/tools.py` — mock fleet telemetry and ticket store; where a real CRM/telematics API would plug in |
 | Guardrails | `src/guardrails.py` — prompt-injection detection, untrusted-content tagging, unsafe-output backstop, PII redaction |
-| Evaluation | `eval/` — 15-case suite: agent trajectories + guardrail unit tests |
+| Judge / critique | `LLMClient.critique` in `src/agent.py` — a second pass over the draft answer before it's returned, checking it's actually grounded in the tool results used |
+| Evaluation | `eval/` — 16-case suite: agent trajectories + guardrail unit tests |
 | Serving | `src/serve.py` — FastAPI (`/chat`, `/health`, `/metrics`), plus the static UI |
-| Observability | `src/observability.py` — JSONL trace of every LLM/tool call and guardrail hit; `/metrics` aggregates it |
+| Observability | `src/observability.py` — JSONL trace of every LLM/tool call, guardrail hit, and critique verdict; also emits OpenTelemetry spans (see below); `/metrics` aggregates the JSONL |
 
 ## Running it
 
@@ -80,14 +88,19 @@ so the whole thing (agent loop, tools, guardrails, tracing) works and is testabl
 external dependencies. `LiveLLMClient` and `MockLLMClient` share one interface, so switching
 to live mode doesn't touch anything else.
 
+By default traces only go to `traces/*.jsonl`. Set `OTEL_CONSOLE_EXPORT=1` to also print each
+span to stdout, or `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` (or wherever) to ship
+them to a real OTLP collector (Jaeger, Honeycomb, etc.) — standard OpenTelemetry env var, no
+code changes needed.
+
 ## Running the evals
 
 ```bash
 python3 eval/run_eval.py
 ```
 
-15 cases (10 end-to-end agent trajectories + 5 guardrail unit tests), writes
-`eval/eval_report.json`. 15/15 pass against the mock client right now. Covers:
+16 cases (11 end-to-end agent trajectories + 5 guardrail unit tests), writes
+`eval/eval_report.json`. 16/16 pass against the mock client right now. Covers:
 
 - **Grounding**: does the answer cite actual figures from the docs (charging voltages,
   warranty terms) instead of making them up?
@@ -102,6 +115,9 @@ python3 eval/run_eval.py
   don't know," not a fabricated answer.
 - **Guardrail backstop**: if the model itself fails to refuse unsafe content (forced via a
   test-only trigger phrase), the deterministic output guardrail should still catch it.
+- **Judge/critique backstop**: if the model states a confident, specific claim with no tool
+  call behind it (forced via a test-only trigger phrase), the critique pass should catch it
+  before it reaches the customer.
 - **Guardrail unit tests**: injection detection on a simulated poisoned KB entry,
   untrusted-content tagging, unsafe-output detection, benign-input false-positive check, PII
   redaction in logs.
@@ -115,13 +131,18 @@ judgment compares to the mock's keyword rules on the same cases.
   synonyms or paraphrasing the way a real embedding model would.
 - The mock LLM is keyword-driven, shaped around this repo's own eval cases. It's not a stand-in
   for real model quality and won't generalize to phrasing outside those cases.
-- Guardrails are regex heuristics, not a classifier or a second-model judge — fine for a demo,
-  not for production.
+- Guardrails are regex heuristics, not a classifier — fine for a demo, not for production.
+- The critique pass is one extra LLM call reviewing the first one; it's not a debate/consensus
+  system, and in mock mode it only catches the one deliberately-planted failure case, not
+  ungrounded claims in general.
 - Fleet/ticket "backends" are JSON files standing in for a telematics API and a CRM.
+- OTel spans have no exporter attached by default (see above) — wiring one up is an env var,
+  not a code change, but it's not sending anywhere until you do that.
 
 ## Ideas for later
 
 - Swap `TfidfEmbedder` for real embeddings + a vector store (Chroma, pgvector).
-- A second agent/judge call that critiques the first agent's answer before it's returned.
 - A live-vs-mock eval report that scores agreement rate, instead of just eyeballing it.
-- OpenTelemetry export from `observability.py` instead of JSONL.
+- Make the mock LLM's critique check actually inspect groundedness generally (e.g. flag any
+  claim containing a number/spec that doesn't appear in a tool result) instead of only
+  reacting to the one test trigger phrase.
