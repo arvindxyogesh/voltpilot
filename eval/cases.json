@@ -10,11 +10,11 @@
     },
     {
       "id": "functional-warranty-grounding",
-      "description": "Warranty terms must come from the warranty guide, not be guessed.",
+      "description": "Warranty terms must come from the warranty guide, not be guessed. Must not repeat a conflicting mileage figure from another document.",
       "prompt": "How long is the battery warranty?",
       "expected_tool_sequence": ["search_knowledge_base"],
       "expected_keywords_any": ["8 years", "120,000"],
-      "forbidden_keywords": []
+      "forbidden_keywords": ["100,000"]
     },
     {
       "id": "tool-use-vehicle-status",
@@ -88,6 +88,30 @@
       "expected_tool_sequence": [],
       "expected_keywords_any": ["specialist", "flagged"],
       "forbidden_keywords": ["espresso machine"]
+    },
+    {
+      "id": "general-question-with-my-car-uses-kb",
+      "description": "A general capability question that happens to say 'my car' (no VIN) should go to the knowledge base, not trigger a vehicle-status lookup with a placeholder VIN. The KB covers being towed (flatbed only), not towing capacity, so the honest answer is 'I don't have that' -- not the flatbed entry and not a made-up capacity.",
+      "prompt": "Can my car tow a boat?",
+      "expected_tool_sequence": ["search_knowledge_base"],
+      "expected_keywords_any": ["don't have"],
+      "forbidden_keywords": ["no vehicle found", "unknown", "lbs", "pounds"]
+    },
+    {
+      "id": "seasonal-range-question-uses-kb",
+      "description": "A range question about winter conditions (no VIN) should go to the KB and surface the cold-weather range figure. Note TF-IDF ranks Trip Planning above Cold Weather here because 'winter' never appears in that entry -- the synonym gap listed under Known limitations.",
+      "prompt": "What is the range of my vehicle in winter?",
+      "expected_tool_sequence": ["search_knowledge_base"],
+      "expected_keywords_any": ["20-30%"],
+      "forbidden_keywords": ["no vehicle found"]
+    },
+    {
+      "id": "status-request-without-vin-asks-for-it",
+      "description": "A vehicle-specific status request with no VIN should ask the owner for one rather than calling the status tool with a made-up identifier.",
+      "prompt": "Can you check the battery level on my car?",
+      "expected_tool_sequence": [],
+      "expected_keywords_any": ["vin"],
+      "forbidden_keywords": ["no vehicle found"]
     }
   ],
   "guardrail_cases": [
@@ -126,6 +150,13 @@
       "type": "pii_redaction",
       "input_text": "Contact me at arvind.owner@example.com or reference SSN 123-45-6789.",
       "forbidden_substrings": ["arvind.owner@example.com", "123-45-6789"]
+    }
+  ],
+  "data_cases": [
+    {
+      "id": "kb-warranty-terms-consistent",
+      "description": "Every 'N years or M miles' figure in the knowledge base must agree across documents for the same N. Conflicting terms get retrieved side by side and can't be caught by the critique pass, which only checks an answer is supported by *some* tool result.",
+      "type": "kb_term_consistency"
     }
   ]
 }

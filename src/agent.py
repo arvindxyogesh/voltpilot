@@ -144,6 +144,12 @@ CRITIQUE_FALLBACK_MESSAGE = (
 )
 
 
+ASK_FOR_VIN_MESSAGE = (
+    "I can look that up for you -- what's the 17-character VIN of the vehicle? "
+    "You'll find it in the app under Vehicle Info, or on the driver-side door jamb."
+)
+
+
 class MockLLMClient:
     """
     Deterministic stand-in for an LLM, driven by simple keyword rules over the
@@ -207,19 +213,25 @@ class MockLLMClient:
                 stop_reason="tool_use",
             )
 
+        # Routing order matters: a VIN means "look up this specific vehicle";
+        # otherwise a general how-does-it-work question ("can my car tow a
+        # boat?") belongs in the knowledge base even when it says "my car".
+        # Only a status-shaped question with no VIN asks the owner for one --
+        # calling get_vehicle_status with a placeholder VIN just produces a
+        # "not found" error the customer can't do anything with.
         vin = self._extract_vin(user_text)
-        if vin or any(k in lowered for k in ("battery status", "my car", "my vehicle", "check my vehicle",
-                                              "dashboard light", "warning light")):
+        if vin:
             return LLMResponse(
                 content=[{
                     "type": "tool_use", "id": "call_status", "name": "get_vehicle_status",
-                    "input": {"vin": vin or "UNKNOWN"},
+                    "input": {"vin": vin},
                 }],
                 stop_reason="tool_use",
             )
 
         kb_keywords = ("warranty", "charg", "range", "tow", "maintenance", "service",
-                      "software update", "cold weather", "tire", "battery health", "roadside")
+                      "software update", "cold weather", "winter", "tire", "battery health",
+                      "roadside", "trip", "over-the-air", "dtc", "high voltage")
         if any(k in lowered for k in kb_keywords):
             return LLMResponse(
                 content=[{
@@ -227,6 +239,14 @@ class MockLLMClient:
                     "input": {"query": user_text},
                 }],
                 stop_reason="tool_use",
+            )
+
+        status_markers = ("status", "battery level", "my car", "my vehicle", "check my vehicle",
+                          "dashboard light", "warning light")
+        if any(k in lowered for k in status_markers):
+            return LLMResponse(
+                content=[{"type": "text", "text": ASK_FOR_VIN_MESSAGE}],
+                stop_reason="end_turn",
             )
 
         return LLMResponse(
