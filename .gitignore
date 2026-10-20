@@ -6,3 +6,6 @@ __pycache__/
 # checked into the repo (traces/eval-*.jsonl) are intentionally kept.
 traces/*.jsonl
 !traces/eval-*.jsonl
+
+# Plumbing-check report from eval/openai_compat_stub.py
+eval/openai_compat_stub_report.json

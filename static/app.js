@@ -77,8 +77,12 @@ async function checkHealth() {
   try {
     const res = await fetch("/health");
     const data = await res.json();
-    modeBadge.textContent = data.llm_mode === "live" ? "live: Claude" : "mock mode";
-    modeBadge.className = `mode-badge ${data.llm_mode === "live" ? "live" : "mock"}`;
+    const isLive = data.llm_mode && data.llm_mode !== "mock";
+    modeBadge.textContent =
+      data.llm_mode === "anthropic" ? "live: Claude"
+      : data.llm_mode === "openai_compat" ? `live: ${data.model || "local model"}`
+      : "mock mode";
+    modeBadge.className = `mode-badge ${isLive ? "live" : "mock"}`;
   } catch (err) {
     modeBadge.textContent = "backend unreachable";
     modeBadge.className = "mode-badge down";

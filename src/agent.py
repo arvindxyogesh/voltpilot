@@ -8,13 +8,20 @@ makes the failure modes (a model that "forgets" to call a tool, a tool result
 that needs re-injecting as untrusted data, deciding when to stop looping)
 visible and fixable, instead of hidden behind a library abstraction.
 
-LLMClient is a small interface with two implementations:
+LLMClient is a small interface with three implementations:
   - LiveLLMClient: calls the real Anthropic API (requires ANTHROPIC_API_KEY).
+  - OpenAICompatLLMClient: any OpenAI-compatible chat-completions endpoint --
+    a local Ollama model (free, nothing leaves your machine), or hosted
+    free tiers like Groq, Gemini, or GitHub Models. Translates this module's
+    Anthropic-style message/tool blocks to and from the OpenAI format at the
+    edge, so the agent loop never knows which provider it's talking to.
   - MockLLMClient: a deterministic, rule-based stand-in with no network or
     API-key dependency, so the eval harness, CI, and anyone cloning this repo
     without a key can still exercise the full tool-calling loop, guardrails,
     and tracing end-to-end.
-`build_llm_client()` picks Live if ANTHROPIC_API_KEY is set, Mock otherwise.
+`build_llm_client()` picks one from LLM_PROVIDER if set (anthropic /
+openai_compat / mock); otherwise Anthropic if ANTHROPIC_API_KEY is set, Mock
+if not.
 """
 from __future__ import annotations
 
@@ -79,6 +86,8 @@ CRITIQUE_SYSTEM_PROMPT = "You are a strict quality reviewer for a customer-suppo
 
 
 class LiveLLMClient:
+    mode = "anthropic"
+
     def __init__(self, model: str = MODEL_NAME) -> None:
         import anthropic  # imported lazily so mock mode never requires the package
 
@@ -98,25 +107,140 @@ class LiveLLMClient:
         return LLMResponse(content=content, stop_reason=response.stop_reason, usage=usage)
 
     def critique(self, user_message: str, tool_calls_made: list[dict], draft_response: str) -> CritiqueResult:
-        tool_names = ", ".join(c["name"] for c in tool_calls_made) or "none"
-        review_prompt = (
-            f"Customer question: {user_message}\n\n"
-            f"Tools used while answering: {tool_names}\n\n"
-            f"Draft answer:\n{draft_response}\n\n"
-            "You're reviewing this before it's sent to the customer. Does it directly address "
-            "the question, and is every specific factual claim grounded in a tool result rather "
-            "than invented? Reply with exactly 'APPROVE', or 'REVISE: <one sentence reason>' if "
-            "it shouldn't go out as-is."
-        )
-        response = self.create(
-            system=CRITIQUE_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": review_prompt}],
-            tools=[],
-        )
-        text = "".join(b.get("text", "") for b in response.content if b.get("type") == "text").strip()
-        if text.upper().startswith("APPROVE"):
-            return CritiqueResult(approved=True, note=text)
-        return CritiqueResult(approved=False, note=text or "Reviewer requested changes.")
+        return critique_with_model(self, user_message, tool_calls_made, draft_response)
+
+
+def critique_with_model(
+    client: LLMClient, user_message: str, tool_calls_made: list[dict], draft_response: str,
+) -> CritiqueResult:
+    """The judge pass, shared by every real-model client: one extra call, no tools."""
+    tool_names = ", ".join(c["name"] for c in tool_calls_made) or "none"
+    review_prompt = (
+        f"Customer question: {user_message}\n\n"
+        f"Tools used while answering: {tool_names}\n\n"
+        f"Draft answer:\n{draft_response}\n\n"
+        "You're reviewing this before it's sent to the customer. Does it directly address "
+        "the question, and is every specific factual claim grounded in a tool result rather "
+        "than invented? Reply with exactly 'APPROVE', or 'REVISE: <one sentence reason>' if "
+        "it shouldn't go out as-is."
+    )
+    response = client.create(
+        system=CRITIQUE_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": review_prompt}],
+        tools=[],
+    )
+    text = "".join(b.get("text", "") for b in response.content if b.get("type") == "text").strip()
+    if text.upper().startswith("APPROVE"):
+        return CritiqueResult(approved=True, note=text)
+    return CritiqueResult(approved=False, note=text or "Reviewer requested changes.")
+
+
+_THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+
+
+class OpenAICompatLLMClient:
+    """
+    Talks to any OpenAI-compatible /v1/chat/completions endpoint. Defaults
+    point at a local Ollama server, which is free and runs offline:
+
+        ollama pull qwen3:8b
+        LLM_PROVIDER=openai_compat python3 eval/run_eval.py
+
+    The rest of the codebase speaks Anthropic-style content blocks
+    (text / tool_use / tool_result), so translation happens only here:
+    to_openai_* on the way out, from_openai_message on the way back.
+    """
+
+    mode = "openai_compat"
+
+    def __init__(
+        self,
+        base_url: str | None = None,
+        model: str | None = None,
+        api_key: str | None = None,
+        temperature: float = 0.0,
+    ) -> None:
+        from openai import OpenAI  # lazy, like anthropic above
+
+        self.base_url = base_url or os.environ.get("LLM_BASE_URL", "http://localhost:11434/v1")
+        self.model = model or os.environ.get("LLM_MODEL", "qwen3:8b")
+        # Ollama ignores the key but the SDK requires one; hosted providers need a real one.
+        self.temperature = temperature
+        self._client = OpenAI(base_url=self.base_url, api_key=api_key or os.environ.get("LLM_API_KEY", "ollama"))
+
+    def create(self, system: str, messages: list[dict], tools: list[dict]) -> LLMResponse:
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": to_openai_messages(system, messages),
+            "temperature": self.temperature,
+            "max_tokens": 1024,
+        }
+        if tools:
+            kwargs["tools"] = to_openai_tools(tools)
+        response = self._client.chat.completions.create(**kwargs)
+        usage = {}
+        if response.usage:
+            usage = {"input_tokens": response.usage.prompt_tokens, "output_tokens": response.usage.completion_tokens}
+        content, stop_reason = from_openai_message(response.choices[0].message)
+        return LLMResponse(content=content, stop_reason=stop_reason, usage=usage)
+
+    def critique(self, user_message: str, tool_calls_made: list[dict], draft_response: str) -> CritiqueResult:
+        return critique_with_model(self, user_message, tool_calls_made, draft_response)
+
+
+def to_openai_tools(tools: list[dict]) -> list[dict]:
+    return [
+        {"type": "function",
+         "function": {"name": t["name"], "description": t.get("description", ""), "parameters": t["input_schema"]}}
+        for t in tools
+    ]
+
+
+def to_openai_messages(system: str, messages: list[dict]) -> list[dict]:
+    out: list[dict] = [{"role": "system", "content": system}]
+    for msg in messages:
+        content = msg["content"]
+        if isinstance(content, str):
+            out.append({"role": msg["role"], "content": content})
+            continue
+        if msg["role"] == "assistant":
+            text = "".join(b.get("text", "") for b in content if b.get("type") == "text")
+            tool_calls = [
+                {"id": b["id"], "type": "function",
+                 "function": {"name": b["name"], "arguments": json.dumps(b.get("input", {}))}}
+                for b in content if b.get("type") == "tool_use"
+            ]
+            entry: dict[str, Any] = {"role": "assistant", "content": text or None}
+            if tool_calls:
+                entry["tool_calls"] = tool_calls
+            out.append(entry)
+        else:
+            # A user turn made of blocks: tool results become one "tool" message each.
+            for b in content:
+                if b.get("type") == "tool_result":
+                    out.append({"role": "tool", "tool_call_id": b["tool_use_id"], "content": str(b["content"])})
+                elif b.get("type") == "text":
+                    out.append({"role": "user", "content": b["text"]})
+    return out
+
+
+def from_openai_message(message: Any) -> tuple[list[dict], str]:
+    blocks: list[dict] = []
+    text = _THINK_RE.sub("", message.content or "").strip()  # reasoning models (e.g. qwen3) may inline <think>
+    if text:
+        blocks.append({"type": "text", "text": text})
+    for i, call in enumerate(message.tool_calls or []):
+        try:
+            tool_input = json.loads(call.function.arguments or "{}")
+        except json.JSONDecodeError:
+            # Small local models occasionally emit malformed JSON; pass it through so the
+            # agent's tool dispatch reports a clean error back to the model instead of crashing.
+            tool_input = {"_unparsed_arguments": call.function.arguments}
+        if not isinstance(tool_input, dict):
+            tool_input = {"_unparsed_arguments": call.function.arguments}
+        blocks.append({"type": "tool_use", "id": call.id or f"call_{i}", "name": call.function.name, "input": tool_input})
+    stop_reason = "tool_use" if any(b["type"] == "tool_use" for b in blocks) else "end_turn"
+    return blocks, stop_reason
 
 
 _VIN_RE = re.compile(r"\b[A-Z0-9]{15,20}\b")
@@ -158,6 +282,8 @@ class MockLLMClient:
     and tracing can be exercised and unit-tested with zero external
     dependencies. Swap in LiveLLMClient for real behavior.
     """
+
+    mode = "mock"
 
     def create(self, system: str, messages: list[dict], tools: list[dict]) -> LLMResponse:
         last = messages[-1]
@@ -368,9 +494,16 @@ class MockLLMClient:
 
 
 def build_llm_client() -> LLMClient:
-    if os.environ.get("ANTHROPIC_API_KEY"):
+    provider = os.environ.get("LLM_PROVIDER", "").strip().lower()
+    if not provider:
+        provider = "anthropic" if os.environ.get("ANTHROPIC_API_KEY") else "mock"
+    if provider == "anthropic":
         return LiveLLMClient()
-    return MockLLMClient()
+    if provider in ("openai_compat", "openai", "ollama"):
+        return OpenAICompatLLMClient()
+    if provider == "mock":
+        return MockLLMClient()
+    raise ValueError(f"Unknown LLM_PROVIDER {provider!r}; use anthropic, openai_compat, or mock")
 
 
 class EVCopilotAgent:
@@ -441,8 +574,16 @@ class EVCopilotAgent:
                     guardrail_events.append({"category": injection_finding.category, "stage": "tool_input"})
 
                 with self.tracer.timed("tool_call", {"name": name, "input": tool_input}) as extra:
-                    impl = tools_mod.TOOL_IMPLEMENTATIONS[name]
-                    result = impl(**tool_input)
+                    impl = tools_mod.TOOL_IMPLEMENTATIONS.get(name)
+                    if impl is None:
+                        result = tools_mod.ToolResult(ok=False, data=None, note=f"Unknown tool {name!r}.")
+                    else:
+                        try:
+                            result = impl(**tool_input)
+                        except TypeError as exc:
+                            # Weaker models sometimes invent or misname arguments. Report it back
+                            # as a tool error so the model can retry, rather than crashing the turn.
+                            result = tools_mod.ToolResult(ok=False, data=None, note=f"Bad arguments for {name}: {exc}")
                     extra["ok"] = result.ok
 
                 tool_calls_made.append({"name": name, "input": tool_input, "ok": result.ok})
