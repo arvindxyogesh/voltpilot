@@ -57,6 +57,7 @@ deterministic check.
 | Area | File |
 |---|---|
 | Agent loop / orchestration | `src/agent.py` — tool-calling loop, system prompt, control flow (including chaining a second tool call when a status lookup turns up something urgent) |
+| Model providers | `src/agent.py` — `LiveLLMClient` (Anthropic), `OpenAICompatLLMClient` (Ollama or any OpenAI-compatible API), `MockLLMClient`; picked by `LLM_PROVIDER` |
 | Retrieval | `src/retrieval.py` — pluggable `Embedder` interface (TF-IDF by default) over `data/knowledge_base.json` |
 | Tools / data | `src/tools.py` — mock fleet telemetry and ticket store; where a real CRM/telematics API would plug in |
 | Guardrails | `src/guardrails.py` — prompt-injection detection, untrusted-content tagging, unsafe-output backstop, PII redaction |
@@ -70,6 +71,10 @@ deterministic check.
 ```bash
 pip install -r requirements.txt
 
+# Free, local, offline: any Ollama model with tool calling
+ollama pull qwen3:8b
+export LLM_PROVIDER=openai_compat        # defaults: LLM_BASE_URL=http://localhost:11434/v1, LLM_MODEL=qwen3:8b
+
 # Live mode (real Claude calls): requires an API key
 export ANTHROPIC_API_KEY=sk-ant-...
 python3 -c "from src.agent import EVCopilotAgent; a = EVCopilotAgent(); print(a.handle_message('How does DC fast charging work?')['response'])"
@@ -82,11 +87,30 @@ curl -X POST localhost:8000/chat -H 'Content-Type: application/json' -d '{"messa
 Open `http://localhost:8000/` for the chat UI once the server's running, or keep using curl —
 both hit the same backend and session store.
 
-No `ANTHROPIC_API_KEY`? `EVCopilotAgent` falls back to `MockLLMClient`, a deterministic
-rule-based stand-in with no network calls. That's what the eval suite runs against by default,
-so the whole thing (agent loop, tools, guardrails, tracing) works and is testable with zero
-external dependencies. `LiveLLMClient` and `MockLLMClient` share one interface, so switching
-to live mode doesn't touch anything else.
+### Choosing a model
+
+`LLM_PROVIDER` picks the backend. If it's unset, the agent uses Claude when
+`ANTHROPIC_API_KEY` is set and the mock otherwise.
+
+| `LLM_PROVIDER` | Backend | Cost |
+|---|---|---|
+| `mock` | `MockLLMClient`, deterministic keyword rules, no network | Free |
+| `openai_compat` | `OpenAICompatLLMClient` against a local Ollama server | Free, runs offline |
+| `openai_compat` + `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` | Same client against a hosted OpenAI-compatible API (Groq, Gemini, GitHub Models, OpenRouter) | Free tiers, rate-limited |
+| `anthropic` | `LiveLLMClient`, Claude via the Anthropic API | Paid per token |
+
+All three share one interface. The rest of the code speaks Anthropic-style content blocks,
+and `OpenAICompatLLMClient` translates to and from the OpenAI format at the edge, so the agent
+loop, guardrails, tracing and evals don't change with the provider. Pick a model with
+tool-calling support (Qwen 3, Llama 3.1+, Mistral Small); models without it will answer every
+question from general knowledge and fail the grounding cases.
+
+Tool dispatch also tolerates the mistakes weaker models make: an unknown tool name, invented
+arguments or malformed argument JSON comes back to the model as a tool error it can recover
+from, instead of crashing the turn.
+
+The mock is what the eval suite runs against by default, so the whole thing (agent loop,
+tools, guardrails, tracing) works and is testable with zero external dependencies.
 
 By default traces only go to `traces/*.jsonl`. Set `OTEL_CONSOLE_EXPORT=1` to also print each
 span to stdout, or `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` (or wherever) to ship
@@ -130,8 +154,16 @@ now. Covers:
   untrusted-content tagging, unsafe-output detection, benign-input false-positive check, PII
   redaction in logs.
 
-Worth re-running in live mode (with `ANTHROPIC_API_KEY` set) to see how a real model's
-judgment compares to the mock's keyword rules on the same cases.
+To run the same suite against a real model, set `LLM_PROVIDER` (and `ANTHROPIC_API_KEY` for
+Claude) before running it. That's the interesting comparison: how a real model's judgment
+holds up against the mock's keyword rules on the same cases. Copy the report aside first,
+since each run overwrites `eval/eval_report.json`.
+
+`python3 eval/openai_compat_stub.py` checks the OpenAI-compatible client without downloading
+a model. It starts a stand-in `/v1/chat/completions` server backed by the mock and runs all 20
+cases through the client over HTTP, which exercises tool schemas, tool calls, tool results,
+chained calls and the critique call in both directions. It verifies the plumbing, not model
+quality.
 
 ## Known limitations
 

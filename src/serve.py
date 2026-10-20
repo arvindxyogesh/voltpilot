@@ -47,8 +47,8 @@ class ChatResponse(BaseModel):
 
 @app.get("/health")
 def health() -> dict:
-    mode = "live" if type(build_llm_client()).__name__ == "LiveLLMClient" else "mock"
-    return {"status": "ok", "llm_mode": mode}
+    client = build_llm_client()
+    return {"status": "ok", "llm_mode": getattr(client, "mode", "unknown"), "model": getattr(client, "model", None)}
 
 
 @app.get("/metrics")
