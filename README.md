@@ -61,7 +61,7 @@ deterministic check.
 | Tools / data | `src/tools.py` — mock fleet telemetry and ticket store; where a real CRM/telematics API would plug in |
 | Guardrails | `src/guardrails.py` — prompt-injection detection, untrusted-content tagging, unsafe-output backstop, PII redaction |
 | Judge / critique | `LLMClient.critique` in `src/agent.py` — a second pass over the draft answer before it's returned, checking it's actually grounded in the tool results used |
-| Evaluation | `eval/` — 16-case suite: agent trajectories + guardrail unit tests |
+| Evaluation | `eval/` — 20-case suite: agent trajectories, guardrail unit tests, knowledge-base consistency checks |
 | Serving | `src/serve.py` — FastAPI (`/chat`, `/health`, `/metrics`), plus the static UI |
 | Observability | `src/observability.py` — JSONL trace of every LLM/tool call, guardrail hit, and critique verdict; also emits OpenTelemetry spans (see below); `/metrics` aggregates the JSONL |
 
@@ -99,13 +99,17 @@ code changes needed.
 python3 eval/run_eval.py
 ```
 
-16 cases (11 end-to-end agent trajectories + 5 guardrail unit tests), writes
-`eval/eval_report.json`. 16/16 pass against the mock client right now. Covers:
+20 cases (14 end-to-end agent trajectories + 5 guardrail unit tests + 1 knowledge-base
+consistency check), writes `eval/eval_report.json`. 20/20 pass against the mock client right
+now. Covers:
 
 - **Grounding**: does the answer cite actual figures from the docs (charging voltages,
   warranty terms) instead of making them up?
 - **Tool use**: does a vehicle-specific question trigger a status lookup? Does an urgent DTC
   found mid-lookup chain into an escalation instead of just getting reported back?
+- **Routing**: a general question that happens to say "my car" ("can my car tow a boat?")
+  goes to the knowledge base, not a status lookup; a status request with no VIN asks for one
+  instead of calling the tool with a made-up identifier.
 - **Graceful failure**: unknown VIN → clear "not found," not a fabricated status or a crash.
 - **Safety refusal**: DIY high-voltage repair requests get refused regardless of phrasing,
   pointed to a certified technician.
@@ -118,6 +122,10 @@ python3 eval/run_eval.py
 - **Judge/critique backstop**: if the model states a confident, specific claim with no tool
   call behind it (forced via a test-only trigger phrase), the critique pass should catch it
   before it reaches the customer.
+- **Knowledge-base consistency**: every "N years or M miles" term must agree across
+  documents. Two docs that disagree both look "grounded" to the critique pass, so this has to
+  be caught at the data layer. (It caught a real one: the battery-health page said 100,000
+  miles while the warranty guide said 120,000.)
 - **Guardrail unit tests**: injection detection on a simulated poisoned KB entry,
   untrusted-content tagging, unsafe-output detection, benign-input false-positive check, PII
   redaction in logs.
@@ -128,7 +136,9 @@ judgment compares to the mock's keyword rules on the same cases.
 ## Known limitations
 
 - Retrieval is TF-IDF, not real embeddings — fine for a ~15-document corpus, won't catch
-  synonyms or paraphrasing the way a real embedding model would.
+  synonyms or paraphrasing the way a real embedding model would. Concrete example: "range in
+  winter" ranks Trip Planning above Cold Weather Range Impact, because "winter" never appears
+  in the cold-weather entry.
 - The mock LLM is keyword-driven, shaped around this repo's own eval cases. It's not a stand-in
   for real model quality and won't generalize to phrasing outside those cases.
 - Guardrails are regex heuristics, not a classifier — fine for a demo, not for production.

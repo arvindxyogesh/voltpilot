@@ -13,6 +13,10 @@ classes of bug:
     directly, using adversarial inputs (a simulated poisoned retrieval
     source, an unsafe-output string) that don't depend on what the LLM/mock
     would do -- these test the deterministic backstop in isolation.
+  - data_cases: checks on the knowledge base itself. If two documents
+    disagree (e.g. two different warranty mileages), retrieval can surface
+    both and the critique pass will approve either, since each is "grounded"
+    in a tool result. That has to be caught at the data layer.
 
 Usage: python3 eval/run_eval.py
 Exits non-zero if any case fails, so this is CI-friendly.
@@ -20,7 +24,9 @@ Exits non-zero if any case fails, so this is CI-friendly.
 from __future__ import annotations
 
 import json
+import re
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -30,6 +36,8 @@ from src.guardrails import check_output_safety, redact_pii, scan_for_injection, 
 from src.observability import Tracer
 
 CASES_PATH = Path(__file__).parent / "cases.json"
+KB_PATH = Path(__file__).resolve().parent.parent / "data" / "knowledge_base.json"
+_TERM_RE = re.compile(r"(\d+)\s+years?\s+or\s+([\d,]+)\s+miles", re.IGNORECASE)
 REPORT_PATH = Path(__file__).parent / "eval_report.json"
 
 
@@ -103,10 +111,33 @@ def run_guardrail_case(case: dict) -> dict:
     return {"id": case["id"], "kind": "guardrail", "passed": not failures, "failures": failures}
 
 
+def run_data_case(case: dict) -> dict:
+    failures = []
+    t = case["type"]
+
+    if t == "kb_term_consistency":
+        # years -> {miles: [doc labels that state it]}
+        seen: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+        for doc in json.loads(KB_PATH.read_text()):
+            label = f"{doc['title']} — {doc['section']}"
+            for years, miles in _TERM_RE.findall(doc["text"]):
+                seen[years][miles.replace(",", "")].append(label)
+        for years, by_miles in seen.items():
+            if len(by_miles) > 1:
+                detail = "; ".join(f"{int(m):,} mi in {', '.join(docs)}" for m, docs in by_miles.items())
+                failures.append(f"conflicting terms for {years} years: {detail}")
+
+    else:
+        failures.append(f"unknown data case type: {t}")
+
+    return {"id": case["id"], "kind": "data", "passed": not failures, "failures": failures}
+
+
 def main() -> int:
     cases = json.loads(CASES_PATH.read_text())
     results = [run_agent_case(c) for c in cases["agent_cases"]]
     results += [run_guardrail_case(c) for c in cases["guardrail_cases"]]
+    results += [run_data_case(c) for c in cases.get("data_cases", [])]
 
     passed = sum(1 for r in results if r["passed"])
     total = len(results)
